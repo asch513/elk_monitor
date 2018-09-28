@@ -1,0 +1,2 @@
+# elk_monitor
+There are plenty of tools available to monitor elasticsearch infrastructure, but knowing if certain logs are no longer being sent to elasticsearch is a problem I've seen across several companies. This script, initial created for integration with icinga, monitors if logs are not coming in from expected hosts, finds additional hosts that are sending logs, and when event ingestion volumes are out of spec. 
