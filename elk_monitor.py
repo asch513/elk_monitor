@@ -6,7 +6,9 @@ import sys
 import time
 import requests
 import json
-#requests.packages.urllib3.disable_warnings()
+from requests.packages.urllib3.exceptions import InsecureRequestWarning
+
+requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
 class ELKMonitor(object):
     def __init__(self,index,user,password,url):
@@ -17,10 +19,8 @@ class ELKMonitor(object):
         self.search_url = "https://{}:{}@{}/{}/_search".format(self.user,self.password,self.url,self.index)
         self.count_url = "https://{}:{}@{}/{}/_count".format(self.user,self.password,self.url,self.index)
 
-    #note that elasticsearch stores timestamp in utc, need to make sure the earliest & latest are in utc
     def get_time_spec_json(self,earliest):
         # get upper limit of time range filter for query
-        #now = time.mktime(time.localtime())
         latest = "now"
         # get lower limit of time range filter for query
         earliest = "{}{}".format(latest, earliest)
@@ -45,6 +45,34 @@ class ELKMonitor(object):
         }
         return search_json
 
+    def checkFieldsExistsSearch(self,earliest,fields,query):
+        time_spec = self.get_time_spec_json(earliest)
+        fields_not_found = []
+        for field in fields.split(","):
+            search_json = {
+                'query': {
+                    'bool': {
+                        'filter': [
+                        {
+                            'exists': {
+                                'field': field
+                            }
+                        },
+                        time_spec
+                        ]
+                    }
+                }
+            }
+            search_json['size'] = 1 #as long as we see at leave 1, we are ok
+            if query:
+                q = { 'query_string' : { 'query': query } }
+                search_json['query']['bool']['filter'].append(q)
+            results = self.perform_query(search_json)
+            if len(results['hits']['hits']) <  1:
+                fields_not_found.append(field) 
+
+        return fields_not_found
+
     def getDistinctFieldValueCount(self,earliest,field,query):
         search_json = self.getSearchString(earliest,field,query)
         search_results = self.perform_query(search_json)
@@ -52,7 +80,7 @@ class ELKMonitor(object):
         return len(unique_field_values)-1
             
 
-    def getSearchString(self,earliest,field,search):
+    def getSearchString(self,earliest,field,search,size=50000):
         time_spec = self.get_time_spec_json(earliest)
         
         search_json = {
@@ -66,7 +94,7 @@ class ELKMonitor(object):
                          "unique_field": {
                              "terms": {
                                  "field": field,
-                                 "size": 50000
+                                 "size": size
                               }
                           }
                       }
@@ -96,7 +124,7 @@ class ELKMonitor(object):
         search_json = { "size": 1,
                         "sort": [
                         {
-                          "event_timestamp": {
+                          "@event_timestamp": {
                             "order": "desc"
                           }
                         }
@@ -269,10 +297,19 @@ if __name__ == '__main__':
     parser.add_argument('-C', '--critical-greater-than', action='store', dest='critical_greater_than',
         required=False, default=None,
         help="Issue CRITICAL if the query returns results greater than this.")
+
+    parser.add_argument('-E', '--exist-fields', action='store', dest='exist_fields',
+        required=False, default=None,
+        help="comma separated list of field names we expect to witness with the search, alert if not found")
     args = parser.parse_args()
 
-    if not args.warning_less_than and not args.warning_greater_than and not args.critical_less_than and not args.critical_greater_than and not args.values and not args.missing:
-        print("UNKNOWN: You must use at least one of: -w -W -c -C -v -m.")
+    if args.earliest and not args.earliest.startswith('-'):
+        args.earliest = '-{}'.format(args.earliest)
+    if args.missing and not args.missing.startswith('-'):
+        args.missing = '-{}'.format(args.missing)
+
+    if not args.warning_less_than and not args.warning_greater_than and not args.critical_less_than and not args.critical_greater_than and not args.values and not args.missing and not args.exist_fields:
+        print("UNKNOWN: You must use at least one of: -w -W -c -C -v -m -E.")
         sys.exit(3)
 
     if (args.values and not args.field) or (args.missing and not args.field):
@@ -299,6 +336,14 @@ if __name__ == '__main__':
         print("Count of {} over {} for {} with query {}".format(count,args.earliest,args.field,args.query))
         monitor_results.extend(monitor.checkCount(count,args.index,args.field,args.field,args.warning_less_than,args.warning_greater_than,args.critical_less_than,args.critical_greater_than))
         
+    if args.exist_fields:
+        if not args.earliest:
+            print("-e requires earliest time to be provided")
+            sys.exit(3)
+        print("Expected Field Names: {}".format(args.exist_fields))
+        fields_not_found = monitor.checkFieldsExistsSearch(args.earliest,args.exist_fields,args.query)
+        if fields_not_found:
+            monitor_results.append("CRITICAL: Index {}, Item Not in List of Known Names {}".format(args.index,fields_not_found))
 
     values = []
     if args.values:

@@ -6,7 +6,7 @@ usage: elk_monitor.py [-h] -n NAME -d DESCRIPTION -i INDEX -l URL -u USER
                       [-e EARLIEST] -p PASSWORD [-q QUERY] [-f FIELD]
                       [-v VALUES] [-m MISSING] [-w WARNING_LESS_THAN]
                       [-W WARNING_GREATER_THAN] [-c CRITICAL_LESS_THAN]
-                      [-C CRITICAL_GREATER_THAN]
+                      [-C CRITICAL_GREATER_THAN] [-E EXIST_FIELDS]
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -47,6 +47,9 @@ optional arguments:
   -C CRITICAL_GREATER_THAN, --critical-greater-than CRITICAL_GREATER_THAN
                         Issue CRITICAL if the query returns results greater
                         than this.
+  -E EXIST_FIELDS, --exist-fields EXIST_FIELDS
+                        comma separated list of field names we expect to
+                        witness with the search, alert if not found
 ```
 
 ## Examples
@@ -63,5 +66,8 @@ Check for missing logs from a specific host, alert if host hasn't logged in the 
 - expected values to find with the search: ``` -v cbmas.local.com ```
 - warn if number of events more than expected: ``` -W '10000000' ```
 - warn if number of events are less than expected: ``` -w '2500000' ```
+- list of fields that should exist in elasticsearch: ``` -E 'method,mime_type,seen_bytes,src_ip,src_ip.ip,dst_ip,dst_ip.ip,type,status_code ```
 
       python3 elk_monitor.py -n 'CB - Log Issue' -d 'Carbonblack Check For Missing Logs and Consumption Levels' -u 'icinga' -p 'passwordforicingauser' -i '\*:carbonblack' -l 'search.local:9200' --earliest='-1h' -f 'host' -v 'cbmaster.local.com' -W '10000000' -w '2500000'
+
+      python3 elk_monitor.py -n 'Bro - Field Name Issue' -d 'Bro Check For Expected Field Names' -u 'icinga' -p 'passwordforicingauser' -i 'bro' -l 'elasticsearch.local' --earliest='-6h' -E 'index,method,mime_type,seen_bytes,src_ip,src_ip.ip,dst_ip,dst_ip.ip,type,status_code,msg,note'
